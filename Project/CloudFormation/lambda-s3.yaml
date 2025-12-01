@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Student Project - S3 + Lambda (logs uploads to CloudWatch) - Fixed 2025'
+
+Resources:
+  # S3 bucket
+  StudentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: javed-project-123   
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # IAM Role for Lambda
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  # Lambda function (Python 3.12)
+  S3UploadLogger:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: student-s3-upload-logger
+      Runtime: python3.12
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+
+          def lambda_handler(event, context):
+              for record in event.get('Records', []):
+                  bucket = record['s3']['bucket']['name']
+                  key = record['s3']['object']['key']
+                  size = record['s3']['object'].get('size', 'unknown')
+                  logger.info(f"S3 UPLOAD → Bucket: {bucket} | File: {key} | Size: {size} bytes")
+              return {'statusCode': 200}
+      Timeout: 10
+
+  # EventBridge rule – triggers Lambda on every S3 object created
+  S3EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: student-s3-upload-trigger
+      EventPattern:
+        source:
+          - aws.s3
+        detail-type:
+          - Object Created
+        detail:
+          bucket:
+            name:
+              - !Ref StudentBucket
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt S3UploadLogger.Arn
+          Id: LambdaTarget
+
+  # Permission so EventBridge can invoke Lambda
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref S3UploadLogger
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt S3EventRule.Arn
+
+Outputs:
+  BucketName:
+    Description: Your S3 bucket
+    Value: !Ref StudentBucket
+  LambdaName:
+    Description: Lambda function name
+    Value: !Ref S3UploadLogger

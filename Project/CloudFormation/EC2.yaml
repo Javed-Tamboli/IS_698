@@ -1,0 +1,73 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Student Project - EC2 + ASG + ALB (hardcoded IDs)'
+
+Resources:
+  WebLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: student-launch-template
+      LaunchTemplateData:
+        ImageId: ami-0fa3fe0fa7920f68e          
+        InstanceType: t3.micro
+        SecurityGroupIds:
+          - sg-00297c8e96827e9b3                # ← your sg_web
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            dnf update -y
+            dnf install -y nginx
+            systemctl start nginx
+            systemctl enable nginx
+            INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+            echo "<h1>Hello from Student Web Server!</h1>" > /usr/share/nginx/html/index.html
+            echo "<h2>Instance: $INSTANCE_ID</h2>" >> /usr/share/nginx/html/index.html
+            echo "<p>Auto Scaling + ALB is working perfectly!</p>" >> /usr/share/nginx/html/index.html
+
+  WebASG:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      VPCZoneIdentifier:
+        - subnet-0c4bf8488fd9319c3           # ← your private_subnet_a
+        - subnet-093ed04ae054822d8           # ← your private_subnet_b
+      LaunchTemplate:
+        LaunchTemplateId: !Ref WebLaunchTemplate
+        Version: !GetAtt WebLaunchTemplate.LatestVersionNumber
+      MinSize: '2'
+      MaxSize: '4'
+      DesiredCapacity: '2'
+      TargetGroupARNs: [ !Ref WebTargetGroup ]
+
+  StudentALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Subnets:
+        - subnet-0c487c4451dae3049           # ← your public_subnet_a
+        - subnet-0240db9a69b36b412           # ← your public_subnet_b
+      SecurityGroups:
+        - sg-00c423f8e3c92cac1               # ← your sg_alb
+      Name: student-alb
+
+  WebListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref StudentALB
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebTargetGroup
+
+  WebTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: student-tg
+      VpcId: vpc-0fb83857b93d4a59c               # ← your vpc_id
+      Port: 80
+      Protocol: HTTP
+      TargetType: instance
+      HealthCheckPath: /
+
+Outputs:
+  WebsiteURL:
+    Description: Open this URL in your browser!
+    Value: !Sub "http://${StudentALB.DNSName}"

@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Student Project - RDS MySQL Instance (Multi-AZ)'
+
+Resources:
+  StudentDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Private subnets for RDS
+      SubnetIds:
+        - subnet-0c4bf8488fd9319c3   # private_subnet_a
+        - subnet-093ed04ae054822d8   # private_subnet_b
+
+  StudentRDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: student-db
+      AllocatedStorage: '20'
+      DBInstanceClass: db.t3.micro
+      Engine: mysql
+      EngineVersion: 8.0.40                # ← confirmed available right now
+      MasterUsername: admin
+      MasterUserPassword: JavedProject123!
+      DBSubnetGroupName: !Ref StudentDBSubnetGroup
+      VPCSecurityGroups:
+        - sg-0634a4bf6c2336efe           # your sg_rds
+      MultiAZ: true
+      PubliclyAccessible: false
+      StorageType: gp3
+      BackupRetentionPeriod: 7
+
+Outputs:
+  RDSEndpoint:
+    Description: RDS endpoint to connect from EC2
+    Value: !GetAtt StudentRDS.Endpoint.Address
+  RDSPort:
+    Description: RDS port
+    Value: '3306'
